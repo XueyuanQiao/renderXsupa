@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>宇宙探索</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        #drag-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(100, 150, 255, 0.3);
+        }
+        #welcome-text {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 
+                0 0 10px rgba(100, 150, 255, 0.8),
+                0 0 20px rgba(100, 150, 255, 0.6),
+                0 0 30px rgba(100, 150, 255, 0.4),
+                0 0 40px rgba(100, 150, 255, 0.2);
+            opacity: 0;
+            z-index: 200;
+            pointer-events: none;
+            letter-spacing: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.5));
+        }
+        #welcome-text.show {
+            animation: floatUp 3s ease-out forwards;
+        }
+        @keyframes floatUp {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, 50%) scale(0.8);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="drag-counter">拖拽次数: 0 / 20</div>
+    <div id="welcome-text">欢迎来到乔雪源的世界</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let stars = [];
+        let planets = [];
+        let meteors = [];
+        let dragCount = 0;
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let cameraRotation = { x: 0, y: 0 };
+        let mouseTrail = [];
+        let welcomeTextShown = false;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000005);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.z = 500;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            createStars();
+            createPlanets();
+            createNebula();
+
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('mousedown', onMouseDown);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            document.addEventListener('touchstart', onTouchStart);
+            document.addEventListener('touchmove', onTouchMove);
+            document.addEventListener('touchend', onTouchEnd);
+
+            animate();
+        }
+
+        function createStars() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starCount = 5000;
+            const positions = new Float32Array(starCount * 3);
+            const colors = new Float32Array(starCount * 3);
+            const sizes = new Float32Array(starCount);
+
+            for (let i = 0; i < starCount; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 2000;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 2000;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 2000;
+
+                const color = new THREE.Color();
+                color.setHSL(Math.random() * 0.2 + 0.55, 0.8, Math.random() * 0.3 + 0.7);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+
+                sizes[i] = Math.random() * 2 + 0.5;
+            }
+
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            starGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            starGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+            const starMaterial = new THREE.PointsMaterial({
+                size: 2,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.8,
+                sizeAttenuation: true
+            });
+
+            const starField = new THREE.Points(starGeometry, starMaterial);
+            scene.add(starField);
+            stars.push(starField);
+        }
+
+        function createPlanets() {
+            const planetData = [
+                { size: 30, x: 200, y: 100, z: -300, color: 0xff6b6b, emissive: 0xff3333 },
+                { size: 20, x: -150, y: -80, z: -200, color: 0x4ecdc4, emissive: 0x2ab7aa },
+                { size: 40, x: 100, y: -150, z: -400, color: 0xffe66d, emissive: 0xffcc00 },
+                { size: 15, x: -250, y: 200, z: -250, color: 0x95e1d3, emissive: 0x6bc4b5 },
+                { size: 25, x: 300, y: 50, z: -350, color: 0xa8e6cf, emissive: 0x7dd4b0 },
+                { size: 35, x: -100, y: 250, z: -300, color: 0xffd93d, emissive: 0xe6c235 },
+                { size: 18, x: 150, y: -200, z: -200, color: 0xc7ceea, emissive: 0xa5b0e0 },
+                { size: 22, x: -300, y: -100, z: -400, color: 0xff8b94, emissive: 0xe66b75 }
+            ];
+
+            planetData.forEach(data => {
+                const geometry = new THREE.SphereGeometry(data.size, 32, 32);
+                const material = new THREE.MeshPhongMaterial({
+                    color: data.color,
+                    emissive: data.emissive,
+                    emissiveIntensity: 0.3,
+                    shininess: 100
+                });
+                const planet = new THREE.Mesh(geometry, material);
+                planet.position.set(data.x, data.y, data.z);
+                planet.userData.originalPosition = { x: data.x, y: data.y, z: data.z };
+                planet.userData.rotationSpeed = Math.random() * 0.01 + 0.005;
+                scene.add(planet);
+                planets.push(planet);
+
+                const glowGeometry = new THREE.SphereGeometry(data.size * 1.2, 32, 32);
+                const glowMaterial = new THREE.MeshBasicMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: 0.1
+                });
+                const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+                glow.position.copy(planet.position);
+                scene.add(glow);
+            });
+        }
+
+        function createNebula() {
+            const nebulaGeometry = new THREE.BufferGeometry();
+            const nebulaCount = 1000;
+            const positions = new Float32Array(nebulaCount * 3);
+            const colors = new Float32Array(nebulaCount * 3);
+
+            for (let i = 0; i < nebulaCount; i++) {
+                const radius = 300 + Math.random() * 400;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.random() * Math.PI;
+
+                positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = radius * Math.cos(phi);
+
+                const color = new THREE.Color();
+                const hue = Math.random() * 0.3 + 0.6;
+                color.setHSL(hue, 0.6, 0.3);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+
+            nebulaGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            nebulaGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const nebulaMaterial = new THREE.PointsMaterial({
+                size: 4,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.3,
+                sizeAttenuation: true
+            });
+
+            const nebula = new THREE.Points(nebulaGeometry, nebulaMaterial);
+            scene.add(nebula);
+            stars.push(nebula);
+        }
+
+        function createMeteor(startX, startY) {
+            const meteorGeometry = new THREE.BufferGeometry();
+            const meteorCount = 50;
+            const positions = new Float32Array(meteorCount * 3);
+            const colors = new Float32Array(meteorCount * 3);
+
+            const startVector = new THREE.Vector3(
+                (startX / window.innerWidth) * 2 - 1,
+                -(startY / window.innerHeight) * 2 + 1,
+                0.5
+            );
+            startVector.unproject(camera);
+            const dir = startVector.sub(camera.position).normalize();
+            const distance = -camera.position.z / dir.z;
+            const startPos = camera.position.clone().add(dir.multiplyScalar(distance));
+
+            const endVector = startPos.clone().add(new THREE.Vector3(
+                (Math.random() - 0.5) * 200,
+                (Math.random() - 0.5) * 200,
+                -Math.random() * 300
+            ));
+
+            for (let i = 0; i < meteorCount; i++) {
+                const t = i / meteorCount;
+                positions[i * 3] = startPos.x + (endVector.x - startPos.x) * t;
+                positions[i * 3 + 1] = startPos.y + (endVector.y - startPos.y) * t;
+                positions[i * 3 + 2] = startPos.z + (endVector.z - startPos.z) * t;
+
+                const color = new THREE.Color();
+                color.setHSL(0.6, 1, 1 - t * 0.5);
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+            }
+
+            meteorGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            meteorGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const meteorMaterial = new THREE.PointsMaterial({
+                size: 3,
+                vertexColors: true,
+                transparent: true,
+                opacity: 1,
+                sizeAttenuation: true
+            });
+
+            const meteor = new THREE.Points(meteorGeometry, meteorMaterial);
+            meteor.userData.life = 1;
+            meteor.userData.decay = 0.02;
+            scene.add(meteor);
+            meteors.push(meteor);
+        }
+
+        function onMouseDown(event) {
+            isDragging = true;
+            previousMousePosition = { x: event.clientX, y: event.clientY };
+        }
+
+        function onMouseMove(event) {
+            if (isDragging) {
+                const deltaX = event.clientX - previousMousePosition.x;
+                const deltaY = event.clientY - previousMousePosition.y;
+
+                cameraRotation.y += deltaX * 0.005;
+                cameraRotation.x += deltaY * 0.005;
+                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+
+                camera.position.x = Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
+                camera.position.y = Math.sin(cameraRotation.x) * 500;
+                camera.position.z = Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
+                camera.lookAt(scene.position);
+
+                previousMousePosition = { x: event.clientX, y: event.clientY };
+            }
+
+            mouseTrail.push({ x: event.clientX, y: event.clientY, time: Date.now() });
+            if (mouseTrail.length > 5) {
+                mouseTrail.shift();
+            }
+
+            if (mouseTrail.length >= 2) {
+                const lastPoint = mouseTrail[mouseTrail.length - 1];
+                const prevPoint = mouseTrail[mouseTrail.length - 2];
+                const distance = Math.sqrt(
+                    Math.pow(lastPoint.x - prevPoint.x, 2) + 
+                    Math.pow(lastPoint.y - prevPoint.y, 2)
+                );
+
+                if (distance > 30) {
+                    createMeteor(event.clientX, event.clientY);
+                    mouseTrail = [];
+                }
+            }
+        }
+
+        function onMouseUp() {
+            if (isDragging) {
+                dragCount++;
+                document.getElementById('drag-counter').textContent = `拖拽次数: ${dragCount} / 20`;
+
+                if (dragCount >= 20 && !welcomeTextShown) {
+                    showWelcomeText();
+                }
+            }
+            isDragging = false;
+        }
+
+        function onTouchStart(event) {
+            if (event.touches.length === 1) {
+                isDragging = true;
+                previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+            }
+        }
+
+        function onTouchMove(event) {
+            if (isDragging && event.touches.length === 1) {
+                const deltaX = event.touches[0].clientX - previousMousePosition.x;
+                const deltaY = event.touches[0].clientY - previousMousePosition.y;
+
+                cameraRotation.y += deltaX * 0.005;
+                cameraRotation.x += deltaY * 0.005;
+                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+
+                camera.position.x = Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
+                camera.position.y = Math.sin(cameraRotation.x) * 500;
+                camera.position.z = Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
+                camera.lookAt(scene.position);
+
+                previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+
+                mouseTrail.push({ x: event.touches[0].clientX, y: event.touches[0].clientY, time: Date.now() });
+                if (mouseTrail.length > 5) {
+                    mouseTrail.shift();
+                }
+
+                if (mouseTrail.length >= 2) {
+                    const lastPoint = mouseTrail[mouseTrail.length - 1];
+                    const prevPoint = mouseTrail[mouseTrail.length - 2];
+                    const distance = Math.sqrt(
+                        Math.pow(lastPoint.x - prevPoint.x, 2) + 
+                        Math.pow(lastPoint.y - prevPoint.y, 2)
+                    );
+
+                    if (distance > 30) {
+                        createMeteor(event.touches[0].clientX, event.touches[0].clientY);
+                        mouseTrail = [];
+                    }
+                }
+            }
+        }
+
+        function onTouchEnd() {
+            if (isDragging) {
+                dragCount++;
+                document.getElementById('drag-counter').textContent = `拖拽次数: ${dragCount} / 20`;
+
+                if (dragCount >= 20 && !welcomeTextShown) {
+                    showWelcomeText();
+                }
+            }
+            isDragging = false;
+        }
+
+        function showWelcomeText() {
+            welcomeTextShown = true;
+            const welcomeText = document.getElementById('welcome-text');
+            welcomeText.classList.add('show');
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            stars.forEach(starField => {
+                starField.rotation.y += 0.0001;
+                starField.rotation.x += 0.00005;
+            });
+
+            planets.forEach(planet => {
+                planet.rotation.y += planet.userData.rotationSpeed;
+                planet.position.x += Math.sin(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
+                planet.position.y += Math.cos(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
+            });
+
+            meteors.forEach((meteor, index) => {
+                meteor.userData.life -= meteor.userData.decay;
+                meteor.material.opacity = meteor.userData.life;
+
+                if (meteor.userData.life <= 0) {
+                    scene.remove(meteor);
+                    meteors.splice(index, 1);
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>

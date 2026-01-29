@@ -1,4 +1,5 @@
 fastapi
 uvicorn
 supabase
-python-dotenv  # 可选
+python-dotenv
+jinja2 
