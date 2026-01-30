@@ -22,7 +22,7 @@
             top: 0;
             left: 0;
         }
-        #drag-counter {
+        #explore-counter {
             position: fixed;
             top: 20px;
             right: 20px;
@@ -60,6 +60,9 @@
         #welcome-text.show {
             animation: floatUp 3s ease-out forwards;
         }
+        #welcome-text.fade-out {
+            animation: fadeBackToUniverse 3s ease-in forwards;
+        }
         @keyframes floatUp {
             0% {
                 opacity: 0;
@@ -70,11 +73,21 @@
                 transform: translate(-50%, -50%) scale(1);
             }
         }
+        @keyframes fadeBackToUniverse {
+            0% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -150%) scale(1.5);
+            }
+        }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
-    <div id="drag-counter">拖拽次数: 0 / 20</div>
+    <div id="explore-counter">探索次数: 0</div>
     <div id="welcome-text">欢迎来到乔雪源的世界</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -88,7 +101,82 @@
         let previousMousePosition = { x: 0, y: 0 };
         let cameraRotation = { x: 0, y: 0 };
         let mouseTrail = [];
-        let welcomeTextShown = false;
+        let keysPressed = {};
+        let lastMousePosition = { x: 0, y: 0 };
+        let meteorTimer = 0;
+        let actionConfig = [];
+        let executedActions = new Set();
+        let userId = null;
+
+        function generateUserId() {
+            return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function getUserId() {
+            if (!userId) {
+                userId = localStorage.getItem('user_id');
+                if (!userId) {
+                    userId = generateUserId();
+                    localStorage.setItem('user_id', userId);
+                }
+            }
+            return userId;
+        }
+
+        async function fetchConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const data = await response.json();
+                actionConfig = data.actions;
+            } catch (error) {
+                console.error('Failed to fetch config:', error);
+            }
+        }
+
+        async function reportDrag(count) {
+            try {
+                await fetch('/api/drag', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        count: count,
+                        user_id: getUserId()
+                    })
+                });
+            } catch (error) {
+                console.error('Failed to report drag:', error);
+            }
+        }
+
+        async function checkAction(count) {
+            if (executedActions.has(count)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/actions/${count}`);
+                const data = await response.json();
+                
+                if (data.action_type !== 'none') {
+                    executedActions.add(count);
+                    executeAction(data.action_type, data.action_data);
+                }
+            } catch (error) {
+                console.error('Failed to check action:', error);
+            }
+        }
+
+        function executeAction(actionType, actionData) {
+            switch (actionType) {
+                case 'show_welcome_text':
+                    showWelcomeText(actionData.text, actionData.duration);
+                    break;
+                default:
+                    console.log('Unknown action type:', actionType);
+            }
+        }
 
         function init() {
             scene = new THREE.Scene();
@@ -106,6 +194,8 @@
             createPlanets();
             createNebula();
 
+            fetchConfig();
+
             window.addEventListener('resize', onWindowResize);
             document.addEventListener('mousedown', onMouseDown);
             document.addEventListener('mousemove', onMouseMove);
@@ -113,6 +203,8 @@
             document.addEventListener('touchstart', onTouchStart);
             document.addEventListener('touchmove', onTouchMove);
             document.addEventListener('touchend', onTouchEnd);
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
 
             animate();
         }
@@ -235,7 +327,7 @@
 
         function createMeteor(startX, startY) {
             const meteorGeometry = new THREE.BufferGeometry();
-            const meteorCount = 50;
+            const meteorCount = 30;
             const positions = new Float32Array(meteorCount * 3);
             const colors = new Float32Array(meteorCount * 3);
 
@@ -250,9 +342,9 @@
             const startPos = camera.position.clone().add(dir.multiplyScalar(distance));
 
             const endVector = startPos.clone().add(new THREE.Vector3(
-                (Math.random() - 0.5) * 200,
-                (Math.random() - 0.5) * 200,
-                -Math.random() * 300
+                (Math.random() - 0.5) * 100,
+                (Math.random() - 0.5) * 100,
+                -Math.random() * 200
             ));
 
             for (let i = 0; i < meteorCount; i++) {
@@ -272,7 +364,7 @@
             meteorGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
             const meteorMaterial = new THREE.PointsMaterial({
-                size: 3,
+                size: 2,
                 vertexColors: true,
                 transparent: true,
                 opacity: 1,
@@ -281,7 +373,7 @@
 
             const meteor = new THREE.Points(meteorGeometry, meteorMaterial);
             meteor.userData.life = 1;
-            meteor.userData.decay = 0.02;
+            meteor.userData.decay = 0.05;
             scene.add(meteor);
             meteors.push(meteor);
         }
@@ -292,10 +384,11 @@
         }
 
         function onMouseMove(event) {
-            if (isDragging) {
-                const deltaX = event.clientX - previousMousePosition.x;
-                const deltaY = event.clientY - previousMousePosition.y;
+            const deltaX = event.clientX - lastMousePosition.x;
+            const deltaY = event.clientY - lastMousePosition.y;
+            const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
+            if (isDragging) {
                 cameraRotation.y += deltaX * 0.005;
                 cameraRotation.x += deltaY * 0.005;
                 cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
@@ -308,34 +401,22 @@
                 previousMousePosition = { x: event.clientX, y: event.clientY };
             }
 
-            mouseTrail.push({ x: event.clientX, y: event.clientY, time: Date.now() });
-            if (mouseTrail.length > 5) {
-                mouseTrail.shift();
+            meteorTimer += speed;
+            if (meteorTimer > 15) {
+                createMeteor(event.clientX, event.clientY);
+                meteorTimer = 0;
             }
 
-            if (mouseTrail.length >= 2) {
-                const lastPoint = mouseTrail[mouseTrail.length - 1];
-                const prevPoint = mouseTrail[mouseTrail.length - 2];
-                const distance = Math.sqrt(
-                    Math.pow(lastPoint.x - prevPoint.x, 2) + 
-                    Math.pow(lastPoint.y - prevPoint.y, 2)
-                );
-
-                if (distance > 30) {
-                    createMeteor(event.clientX, event.clientY);
-                    mouseTrail = [];
-                }
-            }
+            lastMousePosition = { x: event.clientX, y: event.clientY };
         }
 
         function onMouseUp() {
             if (isDragging) {
                 dragCount++;
-                document.getElementById('drag-counter').textContent = `拖拽次数: ${dragCount} / 20`;
-
-                if (dragCount >= 20 && !welcomeTextShown) {
-                    showWelcomeText();
-                }
+                document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
+                
+                reportDrag(dragCount);
+                checkAction(dragCount);
             }
             isDragging = false;
         }
@@ -344,6 +425,7 @@
             if (event.touches.length === 1) {
                 isDragging = true;
                 previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+                lastMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
             }
         }
 
@@ -351,6 +433,7 @@
             if (isDragging && event.touches.length === 1) {
                 const deltaX = event.touches[0].clientX - previousMousePosition.x;
                 const deltaY = event.touches[0].clientY - previousMousePosition.y;
+                const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
                 cameraRotation.y += deltaX * 0.005;
                 cameraRotation.x += deltaY * 0.005;
@@ -363,43 +446,70 @@
 
                 previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
 
-                mouseTrail.push({ x: event.touches[0].clientX, y: event.touches[0].clientY, time: Date.now() });
-                if (mouseTrail.length > 5) {
-                    mouseTrail.shift();
+                meteorTimer += speed;
+                if (meteorTimer > 15) {
+                    createMeteor(event.touches[0].clientX, event.touches[0].clientY);
+                    meteorTimer = 0;
                 }
 
-                if (mouseTrail.length >= 2) {
-                    const lastPoint = mouseTrail[mouseTrail.length - 1];
-                    const prevPoint = mouseTrail[mouseTrail.length - 2];
-                    const distance = Math.sqrt(
-                        Math.pow(lastPoint.x - prevPoint.x, 2) + 
-                        Math.pow(lastPoint.y - prevPoint.y, 2)
-                    );
-
-                    if (distance > 30) {
-                        createMeteor(event.touches[0].clientX, event.touches[0].clientY);
-                        mouseTrail = [];
-                    }
-                }
+                lastMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
             }
         }
 
         function onTouchEnd() {
             if (isDragging) {
                 dragCount++;
-                document.getElementById('drag-counter').textContent = `拖拽次数: ${dragCount} / 20`;
-
-                if (dragCount >= 20 && !welcomeTextShown) {
-                    showWelcomeText();
-                }
+                document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
+                
+                reportDrag(dragCount);
+                checkAction(dragCount);
             }
             isDragging = false;
         }
 
-        function showWelcomeText() {
-            welcomeTextShown = true;
+        function onKeyDown(event) {
+            keysPressed[event.key.toLowerCase()] = true;
+            keysPressed[event.key] = true;
+        }
+
+        function onKeyUp(event) {
+            keysPressed[event.key.toLowerCase()] = false;
+            keysPressed[event.key] = false;
+        }
+
+        function handleKeyboardMovement() {
+            const moveSpeed = 3;
+
+            if (keysPressed['w'] || keysPressed['ArrowUp'] || keysPressed['上']) {
+                cameraRotation.x -= moveSpeed * 0.005;
+            }
+            if (keysPressed['s'] || keysPressed['ArrowDown'] || keysPressed['下']) {
+                cameraRotation.x += moveSpeed * 0.005;
+            }
+            if (keysPressed['a'] || keysPressed['ArrowLeft'] || keysPressed['左']) {
+                cameraRotation.y -= moveSpeed * 0.005;
+            }
+            if (keysPressed['d'] || keysPressed['ArrowRight'] || keysPressed['右']) {
+                cameraRotation.y += moveSpeed * 0.005;
+            }
+
+            cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+
+            camera.position.x = Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
+            camera.position.y = Math.sin(cameraRotation.x) * 500;
+            camera.position.z = Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
+            camera.lookAt(scene.position);
+        }
+
+        function showWelcomeText(text, duration) {
             const welcomeText = document.getElementById('welcome-text');
+            welcomeText.textContent = text;
             welcomeText.classList.add('show');
+
+            setTimeout(() => {
+                welcomeText.classList.remove('show');
+                welcomeText.classList.add('fade-out');
+            }, duration);
         }
 
         function onWindowResize() {
@@ -410,6 +520,8 @@
 
         function animate() {
             requestAnimationFrame(animate);
+
+            handleKeyboardMovement();
 
             stars.forEach(starField => {
                 starField.rotation.y += 0.0001;
