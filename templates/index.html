@@ -133,6 +133,7 @@
                 const response = await fetch('/api/config');
                 const data = await response.json();
                 actionConfig = data.actions;
+                console.log('Fetched config:', actionConfig);
             } catch (error) {
                 console.error('Failed to fetch config:', error);
             }
@@ -167,6 +168,7 @@
                 if (data.action_type !== 'none') {
                     executedActions.add(count);
                     executeAction(data.action_type, data.action_data);
+                    console.log('Executed action for count', count, data);
                 }
             } catch (error) {
                 console.error('Failed to check action:', error);
@@ -359,16 +361,17 @@
         }
 
         function createTrailParticle(position) {
-            const particleGeometry = new THREE.SphereGeometry(1.5, 8, 8);
+            const particleGeometry = new THREE.SphereGeometry(2, 12, 12);
             const particleMaterial = new THREE.MeshBasicMaterial({
-                color: 0x6699ff,
+                color: 0x00ffff,
                 transparent: true,
-                opacity: 0.8
+                opacity: 1
             });
             const particle = new THREE.Mesh(particleGeometry, particleMaterial);
             particle.position.copy(position);
             particle.userData.life = 1;
-            particle.userData.decay = 0.02;
+            particle.userData.decay = 0.1;
+            particle.userData.size = 2;
             scene.add(particle);
             trailParticles.push(particle);
         }
@@ -519,7 +522,7 @@
                 camera.lookAt(cameraTarget);
 
                 const now = Date.now();
-                if (now - lastKeyboardReport > 500 && keyboardMoveDistance > 50) {
+                if (now - lastKeyboardReport > 500 && keyboardMoveDistance > 10) {
                     dragCount++;
                     document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
                     reportDrag(dragCount);
@@ -565,7 +568,8 @@
 
             trailParticles.forEach((particle, index) => {
                 particle.userData.life -= particle.userData.decay;
-                particle.material.opacity = particle.userData.life * 0.8;
+                particle.material.opacity = particle.userData.life * 0.9;
+                particle.scale.setScalar(particle.userData.life * particle.userData.size);
 
                 if (particle.userData.life <= 0) {
                     scene.remove(particle);

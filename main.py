@@ -38,17 +38,38 @@ async def read_root(request: Request):
 
 @app.get("/api/config", response_model=ConfigResponse)
 async def get_config():
-    actions = [
-        {
-            "trigger_count": 20,
-            "action_type": "show_welcome_text",
-            "action_data": {
-                "text": "欢迎来到乔雪源的世界",
-                "duration": 5000
+    try:
+        with open("config.json", "r", encoding="utf-8") as f:
+            config = json.load(f)
+        return config
+    except Exception as e:
+        actions = [
+            {
+                "trigger_count": 20,
+                "action_type": "show_welcome_text",
+                "action_data": {
+                    "text": "欢迎来到乔雪源的世界",
+                    "duration": 5000
+                }
+            },
+            {
+                "trigger_count": 50,
+                "action_type": "show_welcome_text",
+                "action_data": {
+                    "text": "你已经是宇宙探索者了！",
+                    "duration": 3000
+                }
+            },
+            {
+                "trigger_count": 100,
+                "action_type": "show_welcome_text",
+                "action_data": {
+                    "text": "宇宙的奥秘等待你发现",
+                    "duration": 4000
+                }
             }
-        }
-    ]
-    return {"actions": actions}
+        ]
+        return {"actions": actions}
 
 @app.post("/api/drag")
 async def report_drag(event: DragEvent):
