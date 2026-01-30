@@ -347,9 +347,9 @@
                 scene.remove(meteorHead);
             }
 
-            const headGeometry = new THREE.SphereGeometry(3, 16, 16);
+            const headGeometry = new THREE.SphereGeometry(4, 20, 20);
             const headMaterial = new THREE.MeshBasicMaterial({
-                color: 0x00ffff,
+                color: 0xffffff,
                 transparent: true,
                 opacity: 1
             });
@@ -357,7 +357,13 @@
             meteorHead.position.copy(position);
             scene.add(meteorHead);
 
-            createTrailParticle(position);
+            for (let i = 0; i < 5; i++) {
+                createTrailParticle(position.clone().add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10
+                )));
+            }
         }
 
         function createTrailParticle(position) {
@@ -365,12 +371,12 @@
             const particleMaterial = new THREE.MeshBasicMaterial({
                 color: 0x00ffff,
                 transparent: true,
-                opacity: 1
+                opacity: 0.8
             });
             const particle = new THREE.Mesh(particleGeometry, particleMaterial);
             particle.position.copy(position);
             particle.userData.life = 1;
-            particle.userData.decay = 0.1;
+            particle.userData.decay = 0.15;
             particle.userData.size = 2;
             scene.add(particle);
             trailParticles.push(particle);
@@ -478,9 +484,8 @@
         }
 
         function handleKeyboardMovement() {
-            const moveSpeed = 0.8;
+            const moveSpeed = 2.0;
             let moved = false;
-            let moveDistance = 0;
 
             const forward = new THREE.Vector3(0, 0, -1);
             forward.applyQuaternion(camera.quaternion);
@@ -496,39 +501,33 @@
                 camera.position.addScaledVector(forward, moveSpeed);
                 cameraTarget.addScaledVector(forward, moveSpeed);
                 moved = true;
-                moveDistance += moveSpeed;
             }
             if (keysPressed['s'] || keysPressed['ArrowDown'] || keysPressed['下']) {
                 camera.position.addScaledVector(forward, -moveSpeed);
                 cameraTarget.addScaledVector(forward, -moveSpeed);
                 moved = true;
-                moveDistance += moveSpeed;
             }
             if (keysPressed['a'] || keysPressed['ArrowLeft'] || keysPressed['左']) {
                 camera.position.addScaledVector(right, -moveSpeed);
                 cameraTarget.addScaledVector(right, -moveSpeed);
                 moved = true;
-                moveDistance += moveSpeed;
             }
             if (keysPressed['d'] || keysPressed['ArrowRight'] || keysPressed['右']) {
                 camera.position.addScaledVector(right, moveSpeed);
                 cameraTarget.addScaledVector(right, moveSpeed);
                 moved = true;
-                moveDistance += moveSpeed;
             }
 
             if (moved) {
-                keyboardMoveDistance += moveDistance;
                 camera.lookAt(cameraTarget);
 
                 const now = Date.now();
-                if (now - lastKeyboardReport > 500 && keyboardMoveDistance > 10) {
+                if (now - lastKeyboardReport > 500) {
                     dragCount++;
                     document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
                     reportDrag(dragCount);
                     checkAction(dragCount);
                     lastKeyboardReport = now;
-                    keyboardMoveDistance = 0;
                 }
             }
         }
@@ -536,11 +535,16 @@
         function showWelcomeText(text, duration) {
             const welcomeText = document.getElementById('welcome-text');
             welcomeText.textContent = text;
+            welcomeText.classList.remove('fade-out');
             welcomeText.classList.add('show');
 
             setTimeout(() => {
                 welcomeText.classList.remove('show');
                 welcomeText.classList.add('fade-out');
+                
+                setTimeout(() => {
+                    welcomeText.classList.remove('fade-out');
+                }, 3000);
             }, duration);
         }
 
@@ -565,6 +569,14 @@
                 planet.position.x += Math.sin(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
                 planet.position.y += Math.cos(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
             });
+
+            if (meteorHead) {
+                meteorHead.material.opacity -= 0.02;
+                if (meteorHead.material.opacity <= 0) {
+                    scene.remove(meteorHead);
+                    meteorHead = null;
+                }
+            }
 
             trailParticles.forEach((particle, index) => {
                 particle.userData.life -= particle.userData.decay;
