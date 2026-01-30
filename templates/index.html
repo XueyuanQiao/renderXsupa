@@ -109,6 +109,9 @@
         let cameraTarget = { x: 0, y: 0, z: 0 };
         let keyboardMoveDistance = 0;
         let lastKeyboardReport = 0;
+        let meteorHead = null;
+        let trailParticles = [];
+        let cameraRotation = { x: 0, y: 0 };
 
         function generateUserId() {
             return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -184,7 +187,7 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000005);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 20000);
             camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -213,15 +216,15 @@
 
         function createStars() {
             const starGeometry = new THREE.BufferGeometry();
-            const starCount = 5000;
+            const starCount = 10000;
             const positions = new Float32Array(starCount * 3);
             const colors = new Float32Array(starCount * 3);
             const sizes = new Float32Array(starCount);
 
             for (let i = 0; i < starCount; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 2000;
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 2000;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 2000;
+                positions[i * 3] = (Math.random() - 0.5) * 10000;
+                positions[i * 3 + 1] = (Math.random() - 0.5) * 10000;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 10000;
 
                 const color = new THREE.Color();
                 color.setHSL(Math.random() * 0.2 + 0.55, 0.8, Math.random() * 0.3 + 0.7);
@@ -290,12 +293,12 @@
 
         function createNebula() {
             const nebulaGeometry = new THREE.BufferGeometry();
-            const nebulaCount = 1000;
+            const nebulaCount = 3000;
             const positions = new Float32Array(nebulaCount * 3);
             const colors = new Float32Array(nebulaCount * 3);
 
             for (let i = 0; i < nebulaCount; i++) {
-                const radius = 300 + Math.random() * 400;
+                const radius = 1000 + Math.random() * 4000;
                 const theta = Math.random() * Math.PI * 2;
                 const phi = Math.random() * Math.PI;
 
@@ -327,69 +330,47 @@
             stars.push(nebula);
         }
 
-        function createMeteor(startX, startY) {
-            const meteorCount = 60;
-            const positions = new Float32Array(meteorCount * 3);
-            const colors = new Float32Array(meteorCount * 3);
-            const sizes = new Float32Array(meteorCount);
-
-            const startVector = new THREE.Vector3(
-                (startX / window.innerWidth) * 2 - 1,
-                -(startY / window.innerHeight) * 2 + 1,
+        function createMeteorHead(screenX, screenY) {
+            const vector = new THREE.Vector3(
+                (screenX / window.innerWidth) * 2 - 1,
+                -(screenY / window.innerHeight) * 2 + 1,
                 0.5
             );
-            startVector.unproject(camera);
-            const dir = startVector.sub(camera.position).normalize();
-            const distance = -camera.position.z / dir.z;
-            const startPos = camera.position.clone().add(dir.multiplyScalar(distance));
+            vector.unproject(camera);
+            const dir = vector.sub(camera.position).normalize();
+            const distance = 100;
+            const position = camera.position.clone().add(dir.multiplyScalar(distance));
 
-            const endVector = startPos.clone().add(new THREE.Vector3(
-                (Math.random() - 0.5) * 80,
-                (Math.random() - 0.5) * 80,
-                -Math.random() * 150
-            ));
-
-            for (let i = 0; i < meteorCount; i++) {
-                const t = i / meteorCount;
-                const easeT = t * t;
-                
-                positions[i * 3] = startPos.x + (endVector.x - startPos.x) * easeT;
-                positions[i * 3 + 1] = startPos.y + (endVector.y - startPos.y) * easeT;
-                positions[i * 3 + 2] = startPos.z + (endVector.z - startPos.z) * easeT;
-
-                const color = new THREE.Color();
-                color.setHSL(0.6, 0.9, 1 - t * 0.6);
-                colors[i * 3] = color.r;
-                colors[i * 3 + 1] = color.g;
-                colors[i * 3 + 2] = color.b;
-
-                sizes[i] = 3 * (1 - t * 0.7);
+            if (meteorHead) {
+                scene.remove(meteorHead);
             }
 
-            const meteorGeometry = new THREE.BufferGeometry();
-            meteorGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            meteorGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            meteorGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-            const meteorMaterial = new THREE.PointsMaterial({
-                size: 3,
-                vertexColors: true,
+            const headGeometry = new THREE.SphereGeometry(3, 16, 16);
+            const headMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ffff,
                 transparent: true,
-                opacity: 1,
-                sizeAttenuation: true,
-                blending: THREE.AdditiveBlending
+                opacity: 1
             });
+            meteorHead = new THREE.Mesh(headGeometry, headMaterial);
+            meteorHead.position.copy(position);
+            scene.add(meteorHead);
 
-            const meteor = new THREE.Points(meteorGeometry, meteorMaterial);
-            meteor.userData.life = 1;
-            meteor.userData.decay = 0.02;
-            meteor.userData.velocity = new THREE.Vector3(
-                (endVector.x - startPos.x) * 0.05,
-                (endVector.y - startPos.y) * 0.05,
-                (endVector.z - startPos.z) * 0.05
-            );
-            scene.add(meteor);
-            meteors.push(meteor);
+            createTrailParticle(position);
+        }
+
+        function createTrailParticle(position) {
+            const particleGeometry = new THREE.SphereGeometry(1.5, 8, 8);
+            const particleMaterial = new THREE.MeshBasicMaterial({
+                color: 0x6699ff,
+                transparent: true,
+                opacity: 0.8
+            });
+            const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+            particle.position.copy(position);
+            particle.userData.life = 1;
+            particle.userData.decay = 0.02;
+            scene.add(particle);
+            trailParticles.push(particle);
         }
 
         function onMouseDown(event) {
@@ -403,28 +384,22 @@
             const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
             if (isDragging) {
-                const forward = new THREE.Vector3(0, 0, -1);
-                forward.applyQuaternion(camera.quaternion);
-                forward.y = 0;
-                forward.normalize();
+                cameraRotation.y += deltaX * 0.003;
+                cameraRotation.x += deltaY * 0.003;
+                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
 
-                const right = new THREE.Vector3(1, 0, 0);
-                right.applyQuaternion(camera.quaternion);
-                right.y = 0;
-                right.normalize();
-
-                camera.position.addScaledVector(right, deltaX * 0.5);
-                camera.position.addScaledVector(forward, -deltaY * 0.5);
-                cameraTarget.addScaledVector(right, deltaX * 0.5);
-                cameraTarget.addScaledVector(forward, -deltaY * 0.5);
-                camera.lookAt(cameraTarget);
+                camera.lookAt(
+                    camera.position.x + Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x),
+                    camera.position.y + Math.sin(cameraRotation.x),
+                    camera.position.z + Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x)
+                );
 
                 previousMousePosition = { x: event.clientX, y: event.clientY };
             }
 
             meteorTimer += speed;
             if (meteorTimer > 15) {
-                createMeteor(event.clientX, event.clientY);
+                createMeteorHead(event.clientX, event.clientY);
                 meteorTimer = 0;
             }
 
@@ -456,27 +431,21 @@
                 const deltaY = event.touches[0].clientY - previousMousePosition.y;
                 const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-                const forward = new THREE.Vector3(0, 0, -1);
-                forward.applyQuaternion(camera.quaternion);
-                forward.y = 0;
-                forward.normalize();
+                cameraRotation.y += deltaX * 0.003;
+                cameraRotation.x += deltaY * 0.003;
+                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
 
-                const right = new THREE.Vector3(1, 0, 0);
-                right.applyQuaternion(camera.quaternion);
-                right.y = 0;
-                right.normalize();
-
-                camera.position.addScaledVector(right, deltaX * 0.5);
-                camera.position.addScaledVector(forward, -deltaY * 0.5);
-                cameraTarget.addScaledVector(right, deltaX * 0.5);
-                cameraTarget.addScaledVector(forward, -deltaY * 0.5);
-                camera.lookAt(cameraTarget);
+                camera.lookAt(
+                    camera.position.x + Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x),
+                    camera.position.y + Math.sin(cameraRotation.x),
+                    camera.position.z + Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x)
+                );
 
                 previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
 
                 meteorTimer += speed;
                 if (meteorTimer > 15) {
-                    createMeteor(event.touches[0].clientX, event.touches[0].clientY);
+                    createMeteorHead(event.touches[0].clientX, event.touches[0].clientY);
                     meteorTimer = 0;
                 }
 
@@ -506,7 +475,7 @@
         }
 
         function handleKeyboardMovement() {
-            const moveSpeed = 2;
+            const moveSpeed = 0.8;
             let moved = false;
             let moveDistance = 0;
 
@@ -592,6 +561,16 @@
                 planet.rotation.y += planet.userData.rotationSpeed;
                 planet.position.x += Math.sin(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
                 planet.position.y += Math.cos(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
+            });
+
+            trailParticles.forEach((particle, index) => {
+                particle.userData.life -= particle.userData.decay;
+                particle.material.opacity = particle.userData.life * 0.8;
+
+                if (particle.userData.life <= 0) {
+                    scene.remove(particle);
+                    trailParticles.splice(index, 1);
+                }
             });
 
             meteors.forEach((meteor, index) => {
