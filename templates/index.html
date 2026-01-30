@@ -99,14 +99,16 @@
         let dragCount = 0;
         let isDragging = false;
         let previousMousePosition = { x: 0, y: 0 };
-        let cameraRotation = { x: 0, y: 0 };
-        let mouseTrail = [];
         let keysPressed = {};
         let lastMousePosition = { x: 0, y: 0 };
         let meteorTimer = 0;
         let actionConfig = [];
         let executedActions = new Set();
         let userId = null;
+        let cameraPosition = { x: 0, y: 0, z: 500 };
+        let cameraTarget = { x: 0, y: 0, z: 0 };
+        let keyboardMoveDistance = 0;
+        let lastKeyboardReport = 0;
 
         function generateUserId() {
             return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -183,7 +185,7 @@
             scene.background = new THREE.Color(0x000005);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-            camera.position.z = 500;
+            camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -326,10 +328,10 @@
         }
 
         function createMeteor(startX, startY) {
-            const meteorGeometry = new THREE.BufferGeometry();
-            const meteorCount = 30;
+            const meteorCount = 60;
             const positions = new Float32Array(meteorCount * 3);
             const colors = new Float32Array(meteorCount * 3);
+            const sizes = new Float32Array(meteorCount);
 
             const startVector = new THREE.Vector3(
                 (startX / window.innerWidth) * 2 - 1,
@@ -342,38 +344,50 @@
             const startPos = camera.position.clone().add(dir.multiplyScalar(distance));
 
             const endVector = startPos.clone().add(new THREE.Vector3(
-                (Math.random() - 0.5) * 100,
-                (Math.random() - 0.5) * 100,
-                -Math.random() * 200
+                (Math.random() - 0.5) * 80,
+                (Math.random() - 0.5) * 80,
+                -Math.random() * 150
             ));
 
             for (let i = 0; i < meteorCount; i++) {
                 const t = i / meteorCount;
-                positions[i * 3] = startPos.x + (endVector.x - startPos.x) * t;
-                positions[i * 3 + 1] = startPos.y + (endVector.y - startPos.y) * t;
-                positions[i * 3 + 2] = startPos.z + (endVector.z - startPos.z) * t;
+                const easeT = t * t;
+                
+                positions[i * 3] = startPos.x + (endVector.x - startPos.x) * easeT;
+                positions[i * 3 + 1] = startPos.y + (endVector.y - startPos.y) * easeT;
+                positions[i * 3 + 2] = startPos.z + (endVector.z - startPos.z) * easeT;
 
                 const color = new THREE.Color();
-                color.setHSL(0.6, 1, 1 - t * 0.5);
+                color.setHSL(0.6, 0.9, 1 - t * 0.6);
                 colors[i * 3] = color.r;
                 colors[i * 3 + 1] = color.g;
                 colors[i * 3 + 2] = color.b;
+
+                sizes[i] = 3 * (1 - t * 0.7);
             }
 
+            const meteorGeometry = new THREE.BufferGeometry();
             meteorGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             meteorGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            meteorGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
             const meteorMaterial = new THREE.PointsMaterial({
-                size: 2,
+                size: 3,
                 vertexColors: true,
                 transparent: true,
                 opacity: 1,
-                sizeAttenuation: true
+                sizeAttenuation: true,
+                blending: THREE.AdditiveBlending
             });
 
             const meteor = new THREE.Points(meteorGeometry, meteorMaterial);
             meteor.userData.life = 1;
-            meteor.userData.decay = 0.05;
+            meteor.userData.decay = 0.02;
+            meteor.userData.velocity = new THREE.Vector3(
+                (endVector.x - startPos.x) * 0.05,
+                (endVector.y - startPos.y) * 0.05,
+                (endVector.z - startPos.z) * 0.05
+            );
             scene.add(meteor);
             meteors.push(meteor);
         }
@@ -389,14 +403,21 @@
             const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
             if (isDragging) {
-                cameraRotation.y += deltaX * 0.005;
-                cameraRotation.x += deltaY * 0.005;
-                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+                const forward = new THREE.Vector3(0, 0, -1);
+                forward.applyQuaternion(camera.quaternion);
+                forward.y = 0;
+                forward.normalize();
 
-                camera.position.x = Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
-                camera.position.y = Math.sin(cameraRotation.x) * 500;
-                camera.position.z = Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
-                camera.lookAt(scene.position);
+                const right = new THREE.Vector3(1, 0, 0);
+                right.applyQuaternion(camera.quaternion);
+                right.y = 0;
+                right.normalize();
+
+                camera.position.addScaledVector(right, deltaX * 0.5);
+                camera.position.addScaledVector(forward, -deltaY * 0.5);
+                cameraTarget.addScaledVector(right, deltaX * 0.5);
+                cameraTarget.addScaledVector(forward, -deltaY * 0.5);
+                camera.lookAt(cameraTarget);
 
                 previousMousePosition = { x: event.clientX, y: event.clientY };
             }
@@ -435,14 +456,21 @@
                 const deltaY = event.touches[0].clientY - previousMousePosition.y;
                 const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-                cameraRotation.y += deltaX * 0.005;
-                cameraRotation.x += deltaY * 0.005;
-                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+                const forward = new THREE.Vector3(0, 0, -1);
+                forward.applyQuaternion(camera.quaternion);
+                forward.y = 0;
+                forward.normalize();
 
-                camera.position.x = Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
-                camera.position.y = Math.sin(cameraRotation.x) * 500;
-                camera.position.z = Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
-                camera.lookAt(scene.position);
+                const right = new THREE.Vector3(1, 0, 0);
+                right.applyQuaternion(camera.quaternion);
+                right.y = 0;
+                right.normalize();
+
+                camera.position.addScaledVector(right, deltaX * 0.5);
+                camera.position.addScaledVector(forward, -deltaY * 0.5);
+                cameraTarget.addScaledVector(right, deltaX * 0.5);
+                cameraTarget.addScaledVector(forward, -deltaY * 0.5);
+                camera.lookAt(cameraTarget);
 
                 previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
 
@@ -478,27 +506,59 @@
         }
 
         function handleKeyboardMovement() {
-            const moveSpeed = 3;
+            const moveSpeed = 2;
+            let moved = false;
+            let moveDistance = 0;
+
+            const forward = new THREE.Vector3(0, 0, -1);
+            forward.applyQuaternion(camera.quaternion);
+            forward.y = 0;
+            forward.normalize();
+
+            const right = new THREE.Vector3(1, 0, 0);
+            right.applyQuaternion(camera.quaternion);
+            right.y = 0;
+            right.normalize();
 
             if (keysPressed['w'] || keysPressed['ArrowUp'] || keysPressed['上']) {
-                cameraRotation.x -= moveSpeed * 0.005;
+                camera.position.addScaledVector(forward, moveSpeed);
+                cameraTarget.addScaledVector(forward, moveSpeed);
+                moved = true;
+                moveDistance += moveSpeed;
             }
             if (keysPressed['s'] || keysPressed['ArrowDown'] || keysPressed['下']) {
-                cameraRotation.x += moveSpeed * 0.005;
+                camera.position.addScaledVector(forward, -moveSpeed);
+                cameraTarget.addScaledVector(forward, -moveSpeed);
+                moved = true;
+                moveDistance += moveSpeed;
             }
             if (keysPressed['a'] || keysPressed['ArrowLeft'] || keysPressed['左']) {
-                cameraRotation.y -= moveSpeed * 0.005;
+                camera.position.addScaledVector(right, -moveSpeed);
+                cameraTarget.addScaledVector(right, -moveSpeed);
+                moved = true;
+                moveDistance += moveSpeed;
             }
             if (keysPressed['d'] || keysPressed['ArrowRight'] || keysPressed['右']) {
-                cameraRotation.y += moveSpeed * 0.005;
+                camera.position.addScaledVector(right, moveSpeed);
+                cameraTarget.addScaledVector(right, moveSpeed);
+                moved = true;
+                moveDistance += moveSpeed;
             }
 
-            cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
+            if (moved) {
+                keyboardMoveDistance += moveDistance;
+                camera.lookAt(cameraTarget);
 
-            camera.position.x = Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
-            camera.position.y = Math.sin(cameraRotation.x) * 500;
-            camera.position.z = Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x) * 500;
-            camera.lookAt(scene.position);
+                const now = Date.now();
+                if (now - lastKeyboardReport > 500 && keyboardMoveDistance > 50) {
+                    dragCount++;
+                    document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
+                    reportDrag(dragCount);
+                    checkAction(dragCount);
+                    lastKeyboardReport = now;
+                    keyboardMoveDistance = 0;
+                }
+            }
         }
 
         function showWelcomeText(text, duration) {
@@ -537,6 +597,14 @@
             meteors.forEach((meteor, index) => {
                 meteor.userData.life -= meteor.userData.decay;
                 meteor.material.opacity = meteor.userData.life;
+
+                const positions = meteor.geometry.attributes.position.array;
+                for (let i = 0; i < positions.length; i += 3) {
+                    positions[i] += meteor.userData.velocity.x;
+                    positions[i + 1] += meteor.userData.velocity.y;
+                    positions[i + 2] += meteor.userData.velocity.z;
+                }
+                meteor.geometry.attributes.position.needsUpdate = true;
 
                 if (meteor.userData.life <= 0) {
                     scene.remove(meteor);
