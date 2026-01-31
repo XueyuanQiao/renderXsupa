@@ -151,11 +151,6 @@
             window.addEventListener('keydown', onKeyDown);
             window.addEventListener('mousemove', onMouseMove);
 
-            // 显示欢迎信息
-            setTimeout(() => {
-                document.getElementById('welcome-text').classList.add('show');
-            }, 1000);
-
             // 开始动画循环
             animate();
         }
@@ -640,6 +635,7 @@
                 // 重置视角
                 camera.position.set(0, 0, 1000);
                 controls.reset();
+                return;
             }
 
             const moveSpeed = 100;
@@ -648,25 +644,37 @@
             switch (event.code) {
                 case 'KeyW':
                 case 'ArrowUp':
-                    direction.setFromCamera({ x: 0, y: 0, z: -1 }, camera);
+                    direction.set(0, 0, -1);
+                    direction.applyQuaternion(camera.quaternion);
+                    direction.y = 0;
+                    direction.normalize();
                     camera.position.add(direction.multiplyScalar(moveSpeed));
                     incrementExploreCount();
                     break;
                 case 'KeyS':
                 case 'ArrowDown':
-                    direction.setFromCamera({ x: 0, y: 0, z: 1 }, camera);
+                    direction.set(0, 0, 1);
+                    direction.applyQuaternion(camera.quaternion);
+                    direction.y = 0;
+                    direction.normalize();
                     camera.position.add(direction.multiplyScalar(moveSpeed));
                     incrementExploreCount();
                     break;
                 case 'KeyA':
                 case 'ArrowLeft':
-                    direction.setFromCamera({ x: -1, y: 0, z: 0 }, camera);
+                    direction.set(-1, 0, 0);
+                    direction.applyQuaternion(camera.quaternion);
+                    direction.y = 0;
+                    direction.normalize();
                     camera.position.add(direction.multiplyScalar(moveSpeed));
                     incrementExploreCount();
                     break;
                 case 'KeyD':
                 case 'ArrowRight':
-                    direction.setFromCamera({ x: 1, y: 0, z: 0 }, camera);
+                    direction.set(1, 0, 0);
+                    direction.applyQuaternion(camera.quaternion);
+                    direction.y = 0;
+                    direction.normalize();
                     camera.position.add(direction.multiplyScalar(moveSpeed));
                     incrementExploreCount();
                     break;
