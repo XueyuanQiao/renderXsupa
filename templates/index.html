@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>宇宙探索</title>
+    <title>无限宇宙</title>
     <style>
         * {
             margin: 0;
@@ -22,10 +22,10 @@
             top: 0;
             left: 0;
         }
-        #explore-counter {
+        #info-panel {
             position: fixed;
             top: 20px;
-            right: 20px;
+            left: 20px;
             color: rgba(255, 255, 255, 0.7);
             font-size: 14px;
             z-index: 100;
@@ -60,9 +60,6 @@
         #welcome-text.show {
             animation: floatUp 3s ease-out forwards;
         }
-        #welcome-text.fade-out {
-            animation: fadeBackToUniverse 3s ease-in forwards;
-        }
         @keyframes floatUp {
             0% {
                 opacity: 0;
@@ -73,159 +70,301 @@
                 transform: translate(-50%, -50%) scale(1);
             }
         }
-        @keyframes fadeBackToUniverse {
-            0% {
-                opacity: 1;
-                transform: translate(-50%, -50%) scale(1);
-            }
-            100% {
-                opacity: 0;
-                transform: translate(-50%, -150%) scale(1.5);
-            }
-        }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
-    <div id="explore-counter">探索次数: 0</div>
-    <div id="welcome-text">欢迎来到乔雪源的世界</div>
+    <div id="info-panel">
+        <div>操作说明：</div>
+        <div>鼠标拖拽：旋转视角</div>
+        <div>鼠标滚轮：缩放视角</div>
+        <div>WASD/方向键：移动相机</div>
+        <div>空格：重置视角</div>
+        <div id="explore-count">探索次数: 0</div>
+    </div>
+    <div id="welcome-text">欢迎来到无限宇宙</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script>
-        let scene, camera, renderer;
+        let scene, camera, renderer, controls;
         let stars = [];
         let planets = [];
-        let meteors = [];
-        let dragCount = 0;
-        let isDragging = false;
-        let previousMousePosition = { x: 0, y: 0 };
-        let keysPressed = {};
-        let lastMousePosition = { x: 0, y: 0 };
-        let meteorTimer = 0;
-        let actionConfig = [];
-        let executedActions = new Set();
-        let userId = null;
-        let cameraPosition = { x: 0, y: 0, z: 500 };
-        let cameraTarget = { x: 0, y: 0, z: 0 };
-        let keyboardMoveDistance = 0;
-        let lastKeyboardReport = 0;
-        let meteorTrail = [];
-        let cameraRotation = { x: 0, y: 0 };
-
-        function generateUserId() {
-            return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        }
-
-        function getUserId() {
-            if (!userId) {
-                userId = localStorage.getItem('user_id');
-                if (!userId) {
-                    userId = generateUserId();
-                    localStorage.setItem('user_id', userId);
-                }
-            }
-            return userId;
-        }
-
-        async function fetchConfig() {
-            try {
-                const response = await fetch('/api/config');
-                const data = await response.json();
-                actionConfig = data.actions;
-                console.log('Fetched config:', actionConfig);
-            } catch (error) {
-                console.error('Failed to fetch config:', error);
-            }
-        }
-
-        async function reportDrag(count) {
-            try {
-                await fetch('/api/drag', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ 
-                        count: count,
-                        user_id: getUserId()
-                    })
-                });
-            } catch (error) {
-                console.error('Failed to report drag:', error);
-            }
-        }
-
-        async function checkAction(count) {
-            if (executedActions.has(count)) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`/api/actions/${count}`);
-                const data = await response.json();
-                
-                if (data.action_type !== 'none') {
-                    executedActions.add(count);
-                    executeAction(data.action_type, data.action_data);
-                    console.log('Executed action for count', count, data);
-                }
-            } catch (error) {
-                console.error('Failed to check action:', error);
-            }
-        }
-
-        function executeAction(actionType, actionData) {
-            switch (actionType) {
-                case 'show_welcome_text':
-                    showWelcomeText(actionData.text, actionData.duration);
-                    break;
-                default:
-                    console.log('Unknown action type:', actionType);
-            }
-        }
+        let blackHoles = [];
+        let nebulas = [];
+        let starSystems = new Map();
+        let loadedChunks = new Set();
+        let exploreCount = 0;
+        let chunkSize = 10000;
+        let starDensity = 0.0001;
+        let planetDensity = 0.00001;
+        let blackHoleDensity = 0.000001;
+        let nebulaDensity = 0.0000005;
 
         function init() {
+            // 创建场景
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000005);
 
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 20000);
-            camera.position.set(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+            // 创建相机
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200000);
+            camera.position.set(0, 0, 1000);
 
+            // 创建渲染器
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            createStars();
-            createPlanets();
-            createNebula();
+            // 添加环境光
+            const ambientLight = new THREE.AmbientLight(0x222222);
+            scene.add(ambientLight);
 
-            fetchConfig();
+            // 添加点光源
+            const pointLight = new THREE.PointLight(0xffffff, 1, 10000);
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
 
+            // 初始化控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 100;
+            controls.maxDistance = 50000;
+            controls.maxPolarAngle = Math.PI / 2;
+
+            // 初始化星星系统
+            initializeStarSystem();
+
+            // 初始化行星系统
+            initializePlanetSystem();
+
+            // 初始化黑洞系统
+            initializeBlackHoleSystem();
+
+            // 初始化星云系统
+            initializeNebulaSystem();
+
+            // 事件监听器
             window.addEventListener('resize', onWindowResize);
-            document.addEventListener('mousedown', onMouseDown);
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-            document.addEventListener('touchstart', onTouchStart);
-            document.addEventListener('touchmove', onTouchMove);
-            document.addEventListener('touchend', onTouchEnd);
-            document.addEventListener('keydown', onKeyDown);
-            document.addEventListener('keyup', onKeyUp);
+            window.addEventListener('keydown', onKeyDown);
+            window.addEventListener('mousemove', onMouseMove);
 
+            // 显示欢迎信息
+            setTimeout(() => {
+                document.getElementById('welcome-text').classList.add('show');
+            }, 1000);
+
+            // 开始动画循环
             animate();
         }
 
-        function createStars() {
+        function initializeStarSystem() {
+            // 初始加载周围的星星
+            loadStarsAroundCamera();
+        }
+
+        function initializePlanetSystem() {
+            // 初始加载周围的行星
+            loadPlanetsAroundCamera();
+        }
+
+        function initializeBlackHoleSystem() {
+            // 初始加载周围的黑洞
+            loadBlackHolesAroundCamera();
+        }
+
+        function initializeNebulaSystem() {
+            // 初始加载周围的星云
+            loadNebulasAroundCamera();
+        }
+
+        function loadNebulasAroundCamera() {
+            const cameraChunk = getChunkKey(camera.position);
+            const chunksToLoad = getSurroundingChunks(cameraChunk);
+
+            chunksToLoad.forEach(chunkKey => {
+                if (!loadedChunks.has(chunkKey)) {
+                    generateNebulasForChunk(chunkKey);
+                }
+            });
+
+            // 移除距离过远的区块
+            unloadDistantChunks(cameraChunk);
+        }
+
+        function generateNebulasForChunk(chunkKey) {
+            const [x, y, z] = chunkKey.split(',').map(Number);
+            const chunkCenter = new THREE.Vector3(
+                x * chunkSize + chunkSize / 2,
+                y * chunkSize + chunkSize / 2,
+                z * chunkSize + chunkSize / 2
+            );
+
+            const nebulaCount = Math.floor(chunkSize * chunkSize * chunkSize * nebulaDensity);
+
+            for (let i = 0; i < nebulaCount; i++) {
+                const position = new THREE.Vector3(
+                    chunkCenter.x + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.y + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.z + (Math.random() - 0.5) * chunkSize
+                );
+
+                const size = Math.random() * 1000 + 500;
+                const color = new THREE.Color(Math.random() * 0x6666ff + 0x9999ff);
+
+                // 创建星云粒子系统
+                const nebulaGeometry = new THREE.BufferGeometry();
+                const nebulaParticleCount = 1000;
+                const positions = new Float32Array(nebulaParticleCount * 3);
+                const colors = new Float32Array(nebulaParticleCount * 3);
+                const sizes = new Float32Array(nebulaParticleCount);
+
+                for (let j = 0; j < nebulaParticleCount; j++) {
+                    // 生成星云粒子的随机位置（球形分布）
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(Math.random() * 2 - 1);
+                    const radius = Math.random() * size;
+
+                    positions[j * 3] = position.x + radius * Math.sin(phi) * Math.cos(theta);
+                    positions[j * 3 + 1] = position.y + radius * Math.sin(phi) * Math.sin(theta);
+                    positions[j * 3 + 2] = position.z + radius * Math.cos(phi);
+
+                    // 生成星云粒子的颜色（基于主色调的随机变化）
+                    const nebulaColor = new THREE.Color();
+                    nebulaColor.setHSL(color.getHSL().h, Math.random() * 0.3 + 0.2, Math.random() * 0.5 + 0.3);
+                    colors[j * 3] = nebulaColor.r;
+                    colors[j * 3 + 1] = nebulaColor.g;
+                    colors[j * 3 + 2] = nebulaColor.b;
+
+                    // 生成星云粒子的大小
+                    sizes[j] = Math.random() * 10 + 5;
+                }
+
+                nebulaGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                nebulaGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                nebulaGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+                const nebulaMaterial = new THREE.PointsMaterial({
+                    size: 5,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.3,
+                    sizeAttenuation: true
+                });
+
+                const nebula = new THREE.Points(nebulaGeometry, nebulaMaterial);
+                scene.add(nebula);
+                nebulas.push(nebula);
+            }
+        }
+
+        function loadStarsAroundCamera() {
+            const cameraChunk = getChunkKey(camera.position);
+            const chunksToLoad = getSurroundingChunks(cameraChunk);
+
+            chunksToLoad.forEach(chunkKey => {
+                if (!loadedChunks.has(chunkKey)) {
+                    generateStarsForChunk(chunkKey);
+                    loadedChunks.add(chunkKey);
+                }
+            });
+
+            // 移除距离过远的区块
+            unloadDistantChunks(cameraChunk);
+        }
+
+        function frustumCullStars() {
+            // 获取相机的视锥体
+            const frustum = new THREE.Frustum();
+            const projMatrix = new THREE.Matrix4();
+            projMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            frustum.setFromProjectionMatrix(projMatrix);
+
+            // 只渲染视锥体内的星星
+            stars.forEach(starField => {
+                const boundingSphere = new THREE.Sphere();
+                starField.geometry.computeBoundingSphere();
+                boundingSphere.copy(starField.geometry.boundingSphere);
+                boundingSphere.center.add(starField.position);
+                
+                if (frustum.intersectsSphere(boundingSphere)) {
+                    starField.visible = true;
+                } else {
+                    starField.visible = false;
+                }
+            });
+        }
+
+        function loadPlanetsAroundCamera() {
+            const cameraChunk = getChunkKey(camera.position);
+            const chunksToLoad = getSurroundingChunks(cameraChunk);
+
+            chunksToLoad.forEach(chunkKey => {
+                if (!loadedChunks.has(chunkKey)) {
+                    generatePlanetsForChunk(chunkKey);
+                }
+            });
+        }
+
+        function loadBlackHolesAroundCamera() {
+            const cameraChunk = getChunkKey(camera.position);
+            const chunksToLoad = getSurroundingChunks(cameraChunk);
+
+            chunksToLoad.forEach(chunkKey => {
+                if (!loadedChunks.has(chunkKey)) {
+                    generateBlackHolesForChunk(chunkKey);
+                }
+            });
+        }
+
+        function getChunkKey(position) {
+            const x = Math.floor(position.x / chunkSize);
+            const y = Math.floor(position.y / chunkSize);
+            const z = Math.floor(position.z / chunkSize);
+            return `${x},${y},${z}`;
+        }
+
+        function getSurroundingChunks(chunkKey) {
+            const [x, y, z] = chunkKey.split(',').map(Number);
+            const chunks = [];
+
+            for (let i = x - 2; i <= x + 2; i++) {
+                for (let j = y - 2; j <= y + 2; j++) {
+                    for (let k = z - 2; k <= z + 2; k++) {
+                        chunks.push(`${i},${j},${k}`);
+                    }
+                }
+            }
+
+            return chunks;
+        }
+
+        function generateStarsForChunk(chunkKey) {
+            const [x, y, z] = chunkKey.split(',').map(Number);
+            const chunkCenter = new THREE.Vector3(
+                x * chunkSize + chunkSize / 2,
+                y * chunkSize + chunkSize / 2,
+                z * chunkSize + chunkSize / 2
+            );
+
+            const starCount = Math.floor(chunkSize * chunkSize * chunkSize * starDensity);
             const starGeometry = new THREE.BufferGeometry();
-            const starCount = 20000;
             const positions = new Float32Array(starCount * 3);
             const colors = new Float32Array(starCount * 3);
             const sizes = new Float32Array(starCount);
 
             for (let i = 0; i < starCount; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 20000;
-                positions[i * 3 + 1] = (Math.random() - 0.5) * 20000;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 20000;
+                const position = new THREE.Vector3(
+                    chunkCenter.x + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.y + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.z + (Math.random() - 0.5) * chunkSize
+                );
+
+                positions[i * 3] = position.x;
+                positions[i * 3 + 1] = position.y;
+                positions[i * 3 + 2] = position.z;
 
                 const color = new THREE.Color();
                 const hue = Math.random() * 0.3 + 0.5;
@@ -252,292 +391,239 @@
             const starField = new THREE.Points(starGeometry, starMaterial);
             scene.add(starField);
             stars.push(starField);
+            starSystems.set(chunkKey, starField);
         }
 
-        function createPlanets() {
-            const planetData = [
-                { size: 30, x: 200, y: 100, z: -300, color: 0xff6b6b, emissive: 0xff3333 },
-                { size: 20, x: -150, y: -80, z: -200, color: 0x4ecdc4, emissive: 0x2ab7aa },
-                { size: 40, x: 100, y: -150, z: -400, color: 0xffe66d, emissive: 0xffcc00 },
-                { size: 15, x: -250, y: 200, z: -250, color: 0x95e1d3, emissive: 0x6bc4b5 },
-                { size: 25, x: 300, y: 50, z: -350, color: 0xa8e6cf, emissive: 0x7dd4b0 },
-                { size: 35, x: -100, y: 250, z: -300, color: 0xffd93d, emissive: 0xe6c235 },
-                { size: 18, x: 150, y: -200, z: -200, color: 0xc7ceea, emissive: 0xa5b0e0 },
-                { size: 22, x: -300, y: -100, z: -400, color: 0xff8b94, emissive: 0xe66b75 },
-                { size: 50, x: 400, y: -100, z: -500, color: 0x845ec2, emissive: 0x6b46c1 },
-                { size: 12, x: 250, y: 150, z: -250, color: 0xd65db1, emissive: 0xc34a9e },
-                { size: 28, x: -200, y: -150, z: -350, color: 0xff9671, emissive: 0xff7b54 },
-                { size: 16, x: 50, y: 200, z: -400, color: 0xffc75f, emissive: 0xffad42 }
-            ];
+        // 行星实例化网格
+        let planetInstancedMesh = null;
+        let planetInstanceCount = 0;
+        let planetInstanceMaxCount = 1000;
 
-            planetData.forEach(data => {
-                const geometry = new THREE.SphereGeometry(data.size, 32, 32);
-                const material = new THREE.MeshPhongMaterial({
-                    color: data.color,
-                    emissive: data.emissive,
-                    emissiveIntensity: 0.3,
-                    shininess: 100
-                });
-                const planet = new THREE.Mesh(geometry, material);
-                planet.position.set(data.x, data.y, data.z);
-                planet.userData.originalPosition = { x: data.x, y: data.y, z: data.z };
-                planet.userData.rotationSpeed = Math.random() * 0.01 + 0.005;
-                scene.add(planet);
-                planets.push(planet);
-
-                const glowGeometry = new THREE.SphereGeometry(data.size * 1.2, 32, 32);
-                const glowMaterial = new THREE.MeshBasicMaterial({
-                    color: data.color,
-                    transparent: true,
-                    opacity: 0.1
-                });
-                const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-                glow.position.copy(planet.position);
-                scene.add(glow);
-            });
-        }
-
-        function createNebula() {
-            const nebulaGeometry = new THREE.BufferGeometry();
-            const nebulaCount = 8000;
-            const positions = new Float32Array(nebulaCount * 3);
-            const colors = new Float32Array(nebulaCount * 3);
-
-            for (let i = 0; i < nebulaCount; i++) {
-                const radius = 1000 + Math.random() * 8000;
-                const theta = Math.random() * Math.PI * 2;
-                const phi = Math.random() * Math.PI;
-
-                positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-                positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-                positions[i * 3 + 2] = radius * Math.cos(phi);
-
-                const color = new THREE.Color();
-                const hue = Math.random() * 0.4 + 0.5;
-                color.setHSL(hue, 0.6, 0.3);
-                colors[i * 3] = color.r;
-                colors[i * 3 + 1] = color.g;
-                colors[i * 3 + 2] = color.b;
-            }
-
-            nebulaGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            nebulaGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-            const nebulaMaterial = new THREE.PointsMaterial({
-                size: 6,
-                vertexColors: true,
-                transparent: true,
-                opacity: 0.4,
-                sizeAttenuation: true
-            });
-
-            const nebula = new THREE.Points(nebulaGeometry, nebulaMaterial);
-            scene.add(nebula);
-            stars.push(nebula);
-        }
-
-        function createMeteorTrail(screenX, screenY) {
-            const vector = new THREE.Vector3(
-                (screenX / window.innerWidth) * 2 - 1,
-                -(screenY / window.innerHeight) * 2 + 1,
-                0.5
-            );
-            vector.unproject(camera);
-            const dir = vector.sub(camera.position).normalize();
-            const distance = 100;
-            const position = camera.position.clone().add(dir.multiplyScalar(distance));
-
-            for (let i = 0; i < 3; i++) {
-                createTrailParticle(position.clone().add(new THREE.Vector3(
-                    (Math.random() - 0.5) * 3,
-                    (Math.random() - 0.5) * 3,
-                    (Math.random() - 0.5) * 3
-                )));
-            }
-        }
-
-        function createTrailParticle(position) {
-            const particleGeometry = new THREE.SphereGeometry(1.5, 8, 8);
-            const particleMaterial = new THREE.MeshBasicMaterial({
+        function initializePlanetSystem() {
+            // 创建行星实例化网格
+            const planetGeometry = new THREE.SphereGeometry(1, 16, 16); // 基础几何体，后续通过矩阵缩放
+            const planetMaterial = new THREE.MeshPhongMaterial({
                 color: 0xffffff,
-                transparent: true,
-                opacity: 1
+                emissive: 0x333333,
+                emissiveIntensity: 0.3,
+                shininess: 100
             });
-            const particle = new THREE.Mesh(particleGeometry, particleMaterial);
-            particle.position.copy(position);
-            particle.userData.life = 1;
-            particle.userData.decay = 0.1;
-            particle.userData.size = 1.5;
-            particle.userData.velocity = new THREE.Vector3(
-                (Math.random() - 0.5) * 0.5,
-                (Math.random() - 0.5) * 0.5,
-                (Math.random() - 0.5) * 0.5
+            planetInstancedMesh = new THREE.InstancedMesh(planetGeometry, planetMaterial, planetInstanceMaxCount);
+            scene.add(planetInstancedMesh);
+
+            // 初始加载周围的行星
+            loadPlanetsAroundCamera();
+        }
+
+        function generatePlanetsForChunk(chunkKey) {
+            const [x, y, z] = chunkKey.split(',').map(Number);
+            const chunkCenter = new THREE.Vector3(
+                x * chunkSize + chunkSize / 2,
+                y * chunkSize + chunkSize / 2,
+                z * chunkSize + chunkSize / 2
             );
-            scene.add(particle);
-            meteorTrail.push(particle);
-        }
 
-        function onMouseDown(event) {
-            isDragging = true;
-            previousMousePosition = { x: event.clientX, y: event.clientY };
-        }
+            const planetCount = Math.floor(chunkSize * chunkSize * chunkSize * planetDensity);
 
-        function onMouseMove(event) {
-            const deltaX = event.clientX - lastMousePosition.x;
-            const deltaY = event.clientY - lastMousePosition.y;
-            const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            for (let i = 0; i < planetCount; i++) {
+                if (planetInstanceCount >= planetInstanceMaxCount) {
+                    break; // 达到最大实例数
+                }
 
-            if (isDragging) {
-                cameraRotation.y += deltaX * 0.003;
-                cameraRotation.x += deltaY * 0.003;
-                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
-
-                camera.lookAt(
-                    camera.position.x + Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x),
-                    camera.position.y + Math.sin(cameraRotation.x),
-                    camera.position.z + Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x)
+                const position = new THREE.Vector3(
+                    chunkCenter.x + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.y + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.z + (Math.random() - 0.5) * chunkSize
                 );
 
-                previousMousePosition = { x: event.clientX, y: event.clientY };
+                const size = Math.random() * 50 + 10;
+                const color = new THREE.Color(Math.random() * 0xffffff);
+                const emissive = new THREE.Color(Math.random() * 0x333333);
 
-                if (speed > 5) {
-                    createMeteorTrail(event.clientX, event.clientY);
-                }
-            }
+                // 创建实例矩阵
+                const matrix = new THREE.Matrix4();
+                matrix.makeScale(size, size, size);
+                matrix.setPosition(position);
 
-            lastMousePosition = { x: event.clientX, y: event.clientY };
-        }
-
-        function onMouseUp() {
-            if (isDragging) {
-                dragCount++;
-                document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
+                // 设置实例矩阵
+                planetInstancedMesh.setMatrixAt(planetInstanceCount, matrix);
                 
-                reportDrag(dragCount);
-                checkAction(dragCount);
+                // 设置实例颜色
+                planetInstancedMesh.setColorAt(planetInstanceCount, color);
+
+                // 存储行星信息
+                const planetInfo = {
+                    position: position.clone(),
+                    size: size,
+                    color: color,
+                    emissive: emissive,
+                    chunkKey: chunkKey
+                };
+                planets.push(planetInfo);
+
+                planetInstanceCount++;
             }
-            isDragging = false;
+
+            // 更新实例化网格
+            planetInstancedMesh.instanceCount = planetInstanceCount;
         }
 
-        function onTouchStart(event) {
-            if (event.touches.length === 1) {
-                isDragging = true;
-                previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-                lastMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-            }
-        }
+        function generateBlackHolesForChunk(chunkKey) {
+            const [x, y, z] = chunkKey.split(',').map(Number);
+            const chunkCenter = new THREE.Vector3(
+                x * chunkSize + chunkSize / 2,
+                y * chunkSize + chunkSize / 2,
+                z * chunkSize + chunkSize / 2
+            );
 
-        function onTouchMove(event) {
-            if (isDragging && event.touches.length === 1) {
-                const deltaX = event.touches[0].clientX - previousMousePosition.x;
-                const deltaY = event.touches[0].clientY - previousMousePosition.y;
-                const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            const blackHoleCount = Math.floor(chunkSize * chunkSize * chunkSize * blackHoleDensity);
 
-                cameraRotation.y += deltaX * 0.003;
-                cameraRotation.x += deltaY * 0.003;
-                cameraRotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraRotation.x));
-
-                camera.lookAt(
-                    camera.position.x + Math.sin(cameraRotation.y) * Math.cos(cameraRotation.x),
-                    camera.position.y + Math.sin(cameraRotation.x),
-                    camera.position.z + Math.cos(cameraRotation.y) * Math.cos(cameraRotation.x)
+            for (let i = 0; i < blackHoleCount; i++) {
+                const position = new THREE.Vector3(
+                    chunkCenter.x + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.y + (Math.random() - 0.5) * chunkSize,
+                    chunkCenter.z + (Math.random() - 0.5) * chunkSize
                 );
 
-                previousMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+                const size = Math.random() * 100 + 50;
 
-                if (speed > 5) {
-                    createMeteorTrail(event.touches[0].clientX, event.touches[0].clientY);
+                // 创建黑洞主体
+                const geometry = new THREE.SphereGeometry(size, 32, 32);
+                const material = new THREE.MeshBasicMaterial({
+                    color: 0x000000
+                });
+                const blackHole = new THREE.Mesh(geometry, material);
+                blackHole.position.copy(position);
+                blackHole.userData = {
+                    type: 'blackHole',
+                    size: size,
+                    chunkKey: chunkKey,
+                    disk: null,
+                    lens: null
+                };
+
+                scene.add(blackHole);
+                blackHoles.push(blackHole);
+
+                // 添加吸积盘
+                const diskGeometry = new THREE.TorusGeometry(size * 1.5, size * 0.3, 16, 100);
+                diskGeometry.rotateX(Math.PI / 2);
+                const diskMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xff6600,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                const disk = new THREE.Mesh(diskGeometry, diskMaterial);
+                disk.position.copy(position);
+                scene.add(disk);
+                blackHole.userData.disk = disk;
+
+                // 添加引力透镜效果
+                const lensGeometry = new THREE.SphereGeometry(size * 2, 32, 32);
+                const lensMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffffff,
+                    transparent: true,
+                    opacity: 0.1,
+                    side: THREE.BackSide
+                });
+                const lens = new THREE.Mesh(lensGeometry, lensMaterial);
+                lens.position.copy(position);
+                scene.add(lens);
+                blackHole.userData.lens = lens;
+            }
+        }
+
+        function unloadDistantChunks(cameraChunk) {
+            const [cameraX, cameraY, cameraZ] = cameraChunk.split(',').map(Number);
+            const chunksToRemove = [];
+
+            loadedChunks.forEach(chunkKey => {
+                const [x, y, z] = chunkKey.split(',').map(Number);
+                const distance = Math.max(
+                    Math.abs(x - cameraX),
+                    Math.abs(y - cameraY),
+                    Math.abs(z - cameraZ)
+                );
+
+                if (distance > 3) {
+                    chunksToRemove.push(chunkKey);
+                }
+            });
+
+            chunksToRemove.forEach(chunkKey => {
+                // 移除星星
+                if (starSystems.has(chunkKey)) {
+                    const starField = starSystems.get(chunkKey);
+                    scene.remove(starField);
+                    starSystems.delete(chunkKey);
+                    const starIndex = stars.indexOf(starField);
+                    if (starIndex > -1) {
+                        stars.splice(starIndex, 1);
+                    }
                 }
 
-                lastMousePosition = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-            }
+                // 移除行星
+                planets = planets.filter(planet => {
+                    if (planet.chunkKey === chunkKey) {
+                        // 对于实例化网格，我们需要重新构建实例
+                        // 这里简化处理，实际项目中可能需要更复杂的实例管理
+                        return false;
+                    }
+                    return true;
+                });
+
+                // 重新构建行星实例化网格
+                if (planetInstancedMesh) {
+                    planetInstanceCount = 0;
+                    planets.forEach((planet, index) => {
+                        if (planetInstanceCount < planetInstanceMaxCount) {
+                            const matrix = new THREE.Matrix4();
+                            matrix.makeScale(planet.size, planet.size, planet.size);
+                            matrix.setPosition(planet.position);
+                            planetInstancedMesh.setMatrixAt(planetInstanceCount, matrix);
+                            planetInstancedMesh.setColorAt(planetInstanceCount, planet.color);
+                            planetInstanceCount++;
+                        }
+                    });
+                    planetInstancedMesh.instanceCount = planetInstanceCount;
+                    planetInstancedMesh.instanceMatrix.needsUpdate = true;
+                    planetInstancedMesh.instanceColor.needsUpdate = true;
+                }
+
+                // 移除黑洞
+                blackHoles = blackHoles.filter(blackHole => {
+                    if (blackHole.userData.chunkKey === chunkKey) {
+                        // 移除吸积盘
+                        if (blackHole.userData.disk) {
+                            scene.remove(blackHole.userData.disk);
+                        }
+                        // 移除引力透镜效果
+                        if (blackHole.userData.lens) {
+                            scene.remove(blackHole.userData.lens);
+                        }
+                        scene.remove(blackHole);
+                        return false;
+                    }
+                    return true;
+                });
+
+                loadedChunks.delete(chunkKey);
+            });
         }
 
-        function onTouchEnd() {
-            if (isDragging) {
-                dragCount++;
-                document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
-                
-                reportDrag(dragCount);
-                checkAction(dragCount);
-            }
-            isDragging = false;
-        }
+        function getSurroundingChunks(chunkKey) {
+            const [x, y, z] = chunkKey.split(',').map(Number);
+            const chunks = [];
 
-        function onKeyDown(event) {
-            keysPressed[event.key.toLowerCase()] = true;
-            keysPressed[event.key] = true;
-        }
-
-        function onKeyUp(event) {
-            keysPressed[event.key.toLowerCase()] = false;
-            keysPressed[event.key] = false;
-        }
-
-        function handleKeyboardMovement() {
-            const moveSpeed = 2.0;
-            let moved = false;
-
-            const forward = new THREE.Vector3(0, 0, -1);
-            forward.applyQuaternion(camera.quaternion);
-            forward.y = 0;
-            forward.normalize();
-
-            const right = new THREE.Vector3(1, 0, 0);
-            right.applyQuaternion(camera.quaternion);
-            right.y = 0;
-            right.normalize();
-
-            if (keysPressed['w'] || keysPressed['ArrowUp'] || keysPressed['上']) {
-                camera.position.addScaledVector(forward, moveSpeed);
-                cameraTarget.addScaledVector(forward, moveSpeed);
-                moved = true;
-            }
-            if (keysPressed['s'] || keysPressed['ArrowDown'] || keysPressed['下']) {
-                camera.position.addScaledVector(forward, -moveSpeed);
-                cameraTarget.addScaledVector(forward, -moveSpeed);
-                moved = true;
-            }
-            if (keysPressed['a'] || keysPressed['ArrowLeft'] || keysPressed['左']) {
-                camera.position.addScaledVector(right, -moveSpeed);
-                cameraTarget.addScaledVector(right, -moveSpeed);
-                moved = true;
-            }
-            if (keysPressed['d'] || keysPressed['ArrowRight'] || keysPressed['右']) {
-                camera.position.addScaledVector(right, moveSpeed);
-                cameraTarget.addScaledVector(right, moveSpeed);
-                moved = true;
-            }
-
-            if (moved) {
-                camera.lookAt(cameraTarget);
-
-                const now = Date.now();
-                if (now - lastKeyboardReport > 1000) {
-                    dragCount++;
-                    document.getElementById('explore-counter').textContent = `探索次数: ${dragCount}`;
-                    reportDrag(dragCount);
-                    checkAction(dragCount);
-                    lastKeyboardReport = now;
-                    console.log('Keyboard movement counted:', dragCount);
+            for (let i = x - 2; i <= x + 2; i++) {
+                for (let j = y - 2; j <= y + 2; j++) {
+                    for (let k = z - 2; k <= z + 2; k++) {
+                        chunks.push(`${i},${j},${k}`);
+                    }
                 }
             }
-        }
 
-        function showWelcomeText(text, duration) {
-            const welcomeText = document.getElementById('welcome-text');
-            welcomeText.textContent = text;
-            welcomeText.classList.remove('fade-out');
-            welcomeText.classList.add('show');
-
-            setTimeout(() => {
-                welcomeText.classList.remove('show');
-                welcomeText.classList.add('fade-out');
-                
-                setTimeout(() => {
-                    welcomeText.classList.remove('fade-out');
-                }, 3000);
-            }, duration);
+            return chunks;
         }
 
         function onWindowResize() {
@@ -546,55 +632,209 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        function onKeyDown(event) {
+            if (event.code === 'Space') {
+                // 重置视角
+                camera.position.set(0, 0, 1000);
+                controls.reset();
+            }
+
+            const moveSpeed = 100;
+            const direction = new THREE.Vector3();
+
+            switch (event.code) {
+                case 'KeyW':
+                case 'ArrowUp':
+                    direction.setFromCamera({ x: 0, y: 0, z: -1 }, camera);
+                    camera.position.add(direction.multiplyScalar(moveSpeed));
+                    incrementExploreCount();
+                    break;
+                case 'KeyS':
+                case 'ArrowDown':
+                    direction.setFromCamera({ x: 0, y: 0, z: 1 }, camera);
+                    camera.position.add(direction.multiplyScalar(moveSpeed));
+                    incrementExploreCount();
+                    break;
+                case 'KeyA':
+                case 'ArrowLeft':
+                    direction.setFromCamera({ x: -1, y: 0, z: 0 }, camera);
+                    camera.position.add(direction.multiplyScalar(moveSpeed));
+                    incrementExploreCount();
+                    break;
+                case 'KeyD':
+                case 'ArrowRight':
+                    direction.setFromCamera({ x: 1, y: 0, z: 0 }, camera);
+                    camera.position.add(direction.multiplyScalar(moveSpeed));
+                    incrementExploreCount();
+                    break;
+            }
+        }
+
+        function onMouseMove(event) {
+            // 鼠标移动时添加流星效果
+            createMeteorTrail(event.clientX, event.clientY);
+        }
+
+        function incrementExploreCount() {
+            // 增加探索次数
+            exploreCount++;
+            document.getElementById('explore-count').textContent = `探索次数: ${exploreCount}`;
+
+            // 检查是否触发了配置中的事件
+            checkAction(exploreCount);
+        }
+
+        function checkAction(count) {
+            // 检查是否达到了触发条件
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(config => {
+                    if (config.actions) {
+                        config.actions.forEach(action => {
+                            if (action.trigger_count === count) {
+                                if (action.action_type === 'show_welcome_text') {
+                                    showWelcomeText(action.action_data.text, action.action_data.duration);
+                                }
+                            }
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching config:', error);
+                });
+        }
+
+        function showWelcomeText(text, duration) {
+            const welcomeText = document.getElementById('welcome-text');
+            welcomeText.textContent = text;
+            welcomeText.classList.add('show');
+
+            setTimeout(() => {
+                welcomeText.classList.remove('show');
+            }, duration);
+        }
+
+        function createMeteorTrail(x, y) {
+            // 创建流星头部
+            const meteorHead = document.createElement('div');
+            meteorHead.style.position = 'fixed';
+            meteorHead.style.left = `${x}px`;
+            meteorHead.style.top = `${y}px`;
+            meteorHead.style.width = '8px';
+            meteorHead.style.height = '8px';
+            meteorHead.style.borderRadius = '50%';
+            meteorHead.style.backgroundColor = '#ffffff';
+            meteorHead.style.boxShadow = '0 0 10px #ffffff, 0 0 20px #ffffff';
+            meteorHead.style.pointerEvents = 'none';
+            meteorHead.style.zIndex = '1000';
+            meteorHead.style.opacity = '1';
+            meteorHead.style.transition = 'all 0.5s ease-out';
+            document.body.appendChild(meteorHead);
+
+            // 创建流星尾迹
+            for (let i = 0; i < 5; i++) {
+                const trailParticle = document.createElement('div');
+                trailParticle.style.position = 'fixed';
+                trailParticle.style.left = `${x}px`;
+                trailParticle.style.top = `${y}px`;
+                trailParticle.style.width = `${Math.random() * 6 + 2}px`;
+                trailParticle.style.height = `${Math.random() * 6 + 2}px`;
+                trailParticle.style.borderRadius = '50%';
+                trailParticle.style.backgroundColor = `rgba(255, ${Math.random() * 100 + 155}, ${Math.random() * 50}, 0.8)`;
+                trailParticle.style.boxShadow = `0 0 ${Math.random() * 8 + 2}px rgba(255, ${Math.random() * 100 + 155}, ${Math.random() * 50}, 0.8)`;
+                trailParticle.style.pointerEvents = 'none';
+                trailParticle.style.zIndex = '999';
+                trailParticle.style.opacity = '0.8';
+                trailParticle.style.transition = `all ${Math.random() * 0.3 + 0.2}s ease-out`;
+                trailParticle.style.transform = 'translate(0, 0)';
+                document.body.appendChild(trailParticle);
+
+                // 随机偏移
+                const offsetX = Math.random() * 40 - 20;
+                const offsetY = Math.random() * 40 - 20;
+
+                setTimeout(() => {
+                    trailParticle.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+                    trailParticle.style.opacity = '0';
+                    trailParticle.style.width = '0';
+                    trailParticle.style.height = '0';
+                }, 10);
+
+                // 清理
+                setTimeout(() => {
+                    if (trailParticle.parentNode) {
+                        trailParticle.parentNode.removeChild(trailParticle);
+                    }
+                }, 500);
+            }
+
+            // 移动流星头部
+            const offsetX = Math.random() * 20 - 10;
+            const offsetY = Math.random() * 20 - 10;
+
+            setTimeout(() => {
+                meteorHead.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+                meteorHead.style.opacity = '0';
+                meteorHead.style.width = '2px';
+                meteorHead.style.height = '2px';
+            }, 10);
+
+            // 清理
+            setTimeout(() => {
+                if (meteorHead.parentNode) {
+                    meteorHead.parentNode.removeChild(meteorHead);
+                }
+            }, 500);
+        }
+
         function animate() {
             requestAnimationFrame(animate);
 
-            handleKeyboardMovement();
+            // 更新控制器
+            controls.update();
 
+            // 动态加载/卸载星星
+            loadStarsAroundCamera();
+            loadPlanetsAroundCamera();
+            loadBlackHolesAroundCamera();
+            loadNebulasAroundCamera();
+
+            // 视锥体剔除，优化性能
+            frustumCullStars();
+
+            // 旋转星星
             stars.forEach(starField => {
-                starField.rotation.y += 0.0001;
-                starField.rotation.x += 0.00005;
+                starField.rotation.y += 0.00001;
+                starField.rotation.x += 0.000005;
             });
 
-            planets.forEach(planet => {
-                planet.rotation.y += planet.userData.rotationSpeed;
-                planet.position.x += Math.sin(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
-                planet.position.y += Math.cos(Date.now() * 0.001 * planet.userData.rotationSpeed) * 0.1;
-            });
+            // 旋转行星（实例化网格版本）
+            if (planetInstancedMesh) {
+                // 对于实例化网格，我们可以通过更新每个实例的矩阵来实现旋转
+                // 这里简化处理，实际项目中可能需要更复杂的实例管理
+                planetInstancedMesh.rotation.y += 0.001;
+            }
 
-            meteorTrail.forEach((particle, index) => {
-                particle.userData.life -= particle.userData.decay;
-                particle.material.opacity = particle.userData.life * 0.9;
-                particle.scale.setScalar(particle.userData.life * particle.userData.size);
-                particle.position.add(particle.userData.velocity);
-
-                if (particle.userData.life <= 0) {
-                    scene.remove(particle);
-                    meteorTrail.splice(index, 1);
+            // 旋转黑洞吸积盘
+            blackHoles.forEach(blackHole => {
+                blackHole.rotation.y += 0.005;
+                // 旋转吸积盘
+                const disk = blackHole.children[0];
+                if (disk) {
+                    disk.rotation.y += 0.01;
                 }
             });
 
-            meteors.forEach((meteor, index) => {
-                meteor.userData.life -= meteor.userData.decay;
-                meteor.material.opacity = meteor.userData.life;
-
-                const positions = meteor.geometry.attributes.position.array;
-                for (let i = 0; i < positions.length; i += 3) {
-                    positions[i] += meteor.userData.velocity.x;
-                    positions[i + 1] += meteor.userData.velocity.y;
-                    positions[i + 2] += meteor.userData.velocity.z;
-                }
-                meteor.geometry.attributes.position.needsUpdate = true;
-
-                if (meteor.userData.life <= 0) {
-                    scene.remove(meteor);
-                    meteors.splice(index, 1);
-                }
+            // 旋转星云
+            nebulas.forEach(nebula => {
+                nebula.rotation.y += 0.00005;
+                nebula.rotation.x += 0.000025;
             });
 
             renderer.render(scene, camera);
         }
 
+        // 初始化
         init();
     </script>
 </body>
