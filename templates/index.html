@@ -95,11 +95,11 @@
         let starSystems = new Map();
         let loadedChunks = new Set();
         let exploreCount = 0;
-        let chunkSize = 10000;
-        let starDensity = 0.0001;
-        let planetDensity = 0.00001;
-        let blackHoleDensity = 0.000001;
-        let nebulaDensity = 0.0000005;
+        let chunkSize = 15000;
+        let starDensity = 0.00005;
+        let planetDensity = 0.000005;
+        let blackHoleDensity = 0.0000005;
+        let nebulaDensity = 0.0000002;
 
         function init() {
             // 创建场景
@@ -216,7 +216,7 @@
 
                 // 创建星云粒子系统
                 const nebulaGeometry = new THREE.BufferGeometry();
-                const nebulaParticleCount = 1000;
+                const nebulaParticleCount = 300;
                 const positions = new Float32Array(nebulaParticleCount * 3);
                 const colors = new Float32Array(nebulaParticleCount * 3);
                 const sizes = new Float32Array(nebulaParticleCount);
@@ -350,12 +350,15 @@
             );
 
             const starCount = Math.floor(chunkSize * chunkSize * chunkSize * starDensity);
+            // 限制每个区块的星星数量，避免过多星星导致性能问题
+            const maxStarCount = 10000;
+            const actualStarCount = Math.min(starCount, maxStarCount);
             const starGeometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(starCount * 3);
-            const colors = new Float32Array(starCount * 3);
-            const sizes = new Float32Array(starCount);
+            const positions = new Float32Array(actualStarCount * 3);
+            const colors = new Float32Array(actualStarCount * 3);
+            const sizes = new Float32Array(actualStarCount);
 
-            for (let i = 0; i < starCount; i++) {
+            for (let i = 0; i < actualStarCount; i++) {
                 const position = new THREE.Vector3(
                     chunkCenter.x + (Math.random() - 0.5) * chunkSize,
                     chunkCenter.y + (Math.random() - 0.5) * chunkSize,
@@ -714,47 +717,73 @@
             }, duration);
         }
 
+        // 记录上次鼠标位置，用于计算流星方向
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
         function createMeteorTrail(x, y) {
+            // 计算鼠标移动方向和距离
+            const deltaX = x - lastMouseX;
+            const deltaY = y - lastMouseY;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            
+            // 如果鼠标移动距离过小，不创建流星效果
+            if (distance < 5) {
+                lastMouseX = x;
+                lastMouseY = y;
+                return;
+            }
+            
+            // 归一化方向向量
+            const normalizedX = deltaX / distance;
+            const normalizedY = deltaY / distance;
+            
+            // 流星长度和速度
+            const meteorLength = Math.random() * 100 + 50;
+            const meteorSpeed = Math.random() * 2 + 1;
+            
             // 创建流星头部
             const meteorHead = document.createElement('div');
             meteorHead.style.position = 'fixed';
             meteorHead.style.left = `${x}px`;
             meteorHead.style.top = `${y}px`;
-            meteorHead.style.width = '8px';
-            meteorHead.style.height = '8px';
+            meteorHead.style.width = '10px';
+            meteorHead.style.height = '10px';
             meteorHead.style.borderRadius = '50%';
             meteorHead.style.backgroundColor = '#ffffff';
-            meteorHead.style.boxShadow = '0 0 10px #ffffff, 0 0 20px #ffffff';
+            meteorHead.style.boxShadow = '0 0 15px #ffffff, 0 0 30px #ffffff, 0 0 45px #ffffff';
             meteorHead.style.pointerEvents = 'none';
             meteorHead.style.zIndex = '1000';
             meteorHead.style.opacity = '1';
-            meteorHead.style.transition = 'all 0.5s ease-out';
+            meteorHead.style.transition = `all ${0.5 / meteorSpeed}s linear`;
             document.body.appendChild(meteorHead);
 
             // 创建流星尾迹
-            for (let i = 0; i < 5; i++) {
+            const trailCount = 10;
+            for (let i = 0; i < trailCount; i++) {
                 const trailParticle = document.createElement('div');
                 trailParticle.style.position = 'fixed';
                 trailParticle.style.left = `${x}px`;
                 trailParticle.style.top = `${y}px`;
-                trailParticle.style.width = `${Math.random() * 6 + 2}px`;
-                trailParticle.style.height = `${Math.random() * 6 + 2}px`;
+                trailParticle.style.width = `${Math.random() * 8 + 4}px`;
+                trailParticle.style.height = `${Math.random() * 8 + 4}px`;
                 trailParticle.style.borderRadius = '50%';
-                trailParticle.style.backgroundColor = `rgba(255, ${Math.random() * 100 + 155}, ${Math.random() * 50}, 0.8)`;
-                trailParticle.style.boxShadow = `0 0 ${Math.random() * 8 + 2}px rgba(255, ${Math.random() * 100 + 155}, ${Math.random() * 50}, 0.8)`;
+                trailParticle.style.backgroundColor = `rgba(255, ${Math.random() * 100 + 155}, ${Math.random() * 100 + 155}, 0.8)`;
+                trailParticle.style.boxShadow = `0 0 ${Math.random() * 12 + 4}px rgba(255, ${Math.random() * 100 + 155}, ${Math.random() * 100 + 155}, 0.8)`;
                 trailParticle.style.pointerEvents = 'none';
                 trailParticle.style.zIndex = '999';
                 trailParticle.style.opacity = '0.8';
-                trailParticle.style.transition = `all ${Math.random() * 0.3 + 0.2}s ease-out`;
+                trailParticle.style.transition = `all ${(0.4 + i * 0.05) / meteorSpeed}s linear`;
                 trailParticle.style.transform = 'translate(0, 0)';
+                trailParticle.style.filter = 'blur(1px)';
                 document.body.appendChild(trailParticle);
 
-                // 随机偏移
-                const offsetX = Math.random() * 40 - 20;
-                const offsetY = Math.random() * 40 - 20;
+                // 计算尾迹粒子的偏移
+                const trailOffsetX = -normalizedX * (i * 10 + Math.random() * 20);
+                const trailOffsetY = -normalizedY * (i * 10 + Math.random() * 20);
 
                 setTimeout(() => {
-                    trailParticle.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+                    trailParticle.style.transform = `translate(${trailOffsetX}px, ${trailOffsetY}px)`;
                     trailParticle.style.opacity = '0';
                     trailParticle.style.width = '0';
                     trailParticle.style.height = '0';
@@ -765,15 +794,15 @@
                     if (trailParticle.parentNode) {
                         trailParticle.parentNode.removeChild(trailParticle);
                     }
-                }, 500);
+                }, (500 + i * 50) / meteorSpeed);
             }
 
             // 移动流星头部
-            const offsetX = Math.random() * 20 - 10;
-            const offsetY = Math.random() * 20 - 10;
+            const headOffsetX = -normalizedX * meteorLength;
+            const headOffsetY = -normalizedY * meteorLength;
 
             setTimeout(() => {
-                meteorHead.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+                meteorHead.style.transform = `translate(${headOffsetX}px, ${headOffsetY}px)`;
                 meteorHead.style.opacity = '0';
                 meteorHead.style.width = '2px';
                 meteorHead.style.height = '2px';
@@ -784,8 +813,16 @@
                 if (meteorHead.parentNode) {
                     meteorHead.parentNode.removeChild(meteorHead);
                 }
-            }, 500);
+            }, 500 / meteorSpeed);
+            
+            // 更新上次鼠标位置
+            lastMouseX = x;
+            lastMouseY = y;
         }
+
+        // 记录上次加载时间，避免过于频繁的加载
+        let lastLoadTime = 0;
+        const loadInterval = 100; // 加载间隔，单位毫秒
 
         function animate() {
             requestAnimationFrame(animate);
@@ -793,11 +830,15 @@
             // 更新控制器
             controls.update();
 
-            // 动态加载/卸载星星
-            loadStarsAroundCamera();
-            loadPlanetsAroundCamera();
-            loadBlackHolesAroundCamera();
-            loadNebulasAroundCamera();
+            // 动态加载/卸载星星，控制加载频率
+            const currentTime = Date.now();
+            if (currentTime - lastLoadTime > loadInterval) {
+                loadStarsAroundCamera();
+                loadPlanetsAroundCamera();
+                loadBlackHolesAroundCamera();
+                loadNebulasAroundCamera();
+                lastLoadTime = currentTime;
+            }
 
             // 视锥体剔除，优化性能
             frustumCullStars();
